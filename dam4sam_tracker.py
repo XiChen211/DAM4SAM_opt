@@ -1,4 +1,11 @@
 import os
+import sys
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
+path_to_add = os.path.join(current_dir, 'sam2_opt', 'sam2')
+if path_to_add not in sys.path:
+    sys.path.insert(0, path_to_add)
+
 import random
 from collections import OrderedDict
 from pathlib import Path
@@ -15,7 +22,7 @@ from vot.region import RegionType
 from vot.region.raster import calculate_overlaps
 from vot.region.shapes import Mask
 
-# 加载配置文件和设置随机种子
+# Load configuration file and set random seed
 config_path = Path(__file__).parent / "dam4sam_config.yaml"
 with open(config_path) as f:
     config = yaml.load(f, Loader=yaml.FullLoader)
@@ -29,22 +36,29 @@ torch.cuda.manual_seed(seed)
 
 
 class DAM4SAMTracker():
-    def __init__(self, tracker_name="sam21pp-L"):
+    def __init__(self, tracker_name="sam21pp-L",backend="torch", model_root_path=None):
         """
-        DAM4SAM (2.1) 跟踪器的构造函数。
+        Constructor for the DAM4SAM (2.1) tracker.
         """
+        self.backend = "torch" if backend is None else backend
         self.checkpoint, self.model_cfg = determine_tracker(tracker_name)
 
-        # 图像预处理参数
+        # Image preprocessing parameters
         self.input_image_size = 1024
         self.img_mean = torch.tensor([0.485, 0.456, 0.406], dtype=torch.float32)[:, None, None]
         self.img_std = torch.tensor([0.229, 0.224, 0.225], dtype=torch.float32)[:, None, None]
 
         self.predictor = build_sam2_video_predictor(self.model_cfg, self.checkpoint, device="cuda:0")
+         # add speedup
+        if self.backend != "torch":
+            print(f"Enabling acceleration with backend: {backend}")
+            self.predictor.speedup(backend=backend, use_cache=True, model_root_path=model_root_path)
+        else:
+            print("Using default PyTorch backend without acceleration.")
         self.tracking_times = []
 
     def _prepare_image(self, img_pil):
-        """将 PIL 图像转换为模型所需的张量。"""
+        """Converts a PIL image to the tensor required by the model."""
         img = torch.from_numpy(np.array(img_pil)).to(self.inference_state["device"])
         img = img.permute(2, 0, 1).float() / 255.0
         img = F.resize(img, (self.input_image_size, self.input_image_size))
@@ -53,7 +67,7 @@ class DAM4SAMTracker():
 
     @torch.inference_mode()
     def init_state_tw(self):
-        """初始化一个推理状态字典。"""
+        """Initializes an inference state dictionary."""
         compute_device = torch.device("cuda")
         inference_state = {}
         inference_state["images"] = None
@@ -94,7 +108,7 @@ class DAM4SAMTracker():
     @torch.inference_mode()
     def initialize(self, image, init_mask=None, init_prompts=None):
         """
-        使用第一帧和一组混合提示（点和/或框）或一个初始掩码来初始化跟踪器。
+        Initializes the tracker with the first frame and a set of mixed prompts (points and/or boxes) or an initial mask.
         """
         self.frame_index = 0
         self.object_sizes = []
@@ -118,10 +132,10 @@ class DAM4SAMTracker():
                     init_prompts.get("pos_points") or init_prompts.get("neg_points") or init_prompts.get("box")):
                 init_mask = self.estimate_mask_from_prompts(init_prompts)
             else:
-                raise ValueError("错误：必须提供 init_mask 或有效的 init_prompts。")
+                raise ValueError("Error: Must provide either init_mask or valid init_prompts.")
 
         if init_mask is None:
-            raise ValueError("错误：从提供的提示中未能成功生成掩码。")
+            raise ValueError("Error: Failed to generate a mask from the provided prompts.")
 
         _, _, out_mask_logits = self.predictor.add_new_mask(
             inference_state=self.inference_state,
@@ -138,7 +152,7 @@ class DAM4SAMTracker():
     @torch.inference_mode()
     def track(self, image, init=False):
         """
-        跟踪下一帧中的对象。
+        Tracks the object in the next frame.
         """
         torch.cuda.empty_cache()
         prepared_img = self._prepare_image(image).unsqueeze(0)
@@ -198,9 +212,9 @@ class DAM4SAMTracker():
 
     def estimate_mask_from_prompts(self, prompts):
         """
-        从一组混合提示（前景/背景点和/或框）中估计初始掩码。
+        Estimates the initial mask from a set of mixed prompts (foreground/background points and/or boxes).
         """
-        # 步骤 1: 获取已缓存的图像特征
+        # Step 1: Get cached image features
         (
             _, _, current_vision_feats, _, feat_sizes
         ) = self.predictor._get_image_feature(self.inference_state, 0, 1)
@@ -216,7 +230,7 @@ class DAM4SAMTracker():
         points_for_encoder = None
         box_for_encoder = None
 
-        # 步骤 2: 准备点提示 (已修复坐标变换)
+        # Step 2: Prepare point prompts (with fixed coordinate transformation)
         pos_points = prompts.get("pos_points", [])
         neg_points = prompts.get("neg_points", [])
 
@@ -227,14 +241,14 @@ class DAM4SAMTracker():
             point_coords_orig = torch.as_tensor(all_coords_np, dtype=torch.float, device=device)
             point_labels = torch.as_tensor(all_labels_np, dtype=torch.int, device=device).unsqueeze(0)
 
-            # --- 对点坐标进行和BOX一样的变换，使其匹配模型输入尺寸(1024x1024) ---
+            # --- Transform point coordinates similarly to the box to match the model input size (1024x1024) ---
             transformed_point_coords = _transforms.transform_coords(
                 point_coords_orig, normalize=True, orig_hw=(self.img_height, self.img_width)
             ).unsqueeze(0)
 
             points_for_encoder = (transformed_point_coords, point_labels)
 
-        # 步骤 3: 准备框提示
+        # Step 3: Prepare box prompts
         bbox = prompts.get("box")
         if bbox:
             box_coords = np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]])[None, :]
@@ -244,14 +258,14 @@ class DAM4SAMTracker():
                 box_tensor, normalize=True, orig_hw=(self.img_height, self.img_width)
             )
 
-        # 步骤 4: 调用 Prompt Encoder
+        # Step 4: Call the Prompt Encoder
         sparse_embeddings, dense_embeddings = self.predictor.sam_prompt_encoder(
             points=points_for_encoder,
             boxes=box_for_encoder,
             masks=None
         )
 
-        # 步骤 5: 调用 Mask Decoder
+        # Step 5: Call the Mask Decoder
         high_res_features = []
         for i in range(2):
             _, b_, c_ = current_vision_feats[i].shape
@@ -275,7 +289,7 @@ class DAM4SAMTracker():
             high_res_features=high_res_features,
         )
 
-        # 步骤 6: 后处理并选出最佳掩码
+        # Step 6: Post-process and select the best mask
         masks = _transforms.postprocess_masks(low_res_masks, (self.img_height, self.img_width)) > 0
 
         masks_np = masks.squeeze(0).float().detach().cpu().numpy()

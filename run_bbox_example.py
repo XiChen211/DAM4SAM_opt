@@ -1,4 +1,8 @@
 import os
+import sys
+# Add the path to the sam2 submodule to the system path
+path_to_sam2_submodule = os.path.join(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, path_to_sam2_submodule)
 import glob
 import argparse
 import shutil
@@ -10,18 +14,15 @@ from PIL import Image
 from dam4sam_tracker import DAM4SAMTracker
 from utils.visualization_utils import overlay_mask, overlay_rectangle
 
-
-# =================================================================================
-# 全新重构：一个支持混合输入的标注器
-# =================================================================================
+# python run_bbox_example.py --dir frames-dir --ext jpg --output_dir output-dir
 class InputSelector:
     """
-    一个统一的输入选择器，支持混合标注：
-    - 左键单击: 添加前景点 (绿色)
-    - 右键单击: 添加背景点 (红色)
-    - 左键拖拽: 绘制边界框 (蓝色)
-    - 'c'键: 清除所有当前标注
-    - 'Enter'键: 确认并继续
+    A unified input selector that supports mixed annotations:
+    - Left-click: Add a foreground point (green)
+    - Right-click: Add a background point (red)
+    - Left-drag: Draw a bounding box (blue)
+    - 'c' key: Clear all current annotations
+    - 'Enter' key: Confirm and proceed
     """
 
     def __init__(self, window_name, image):
@@ -29,7 +30,7 @@ class InputSelector:
         self.image = image.copy()
         self.display_image = image.copy()
 
-        # 存储所有类型的提示
+        # Store all types of prompts
         self.prompts = {
             "pos_points": [],
             "neg_points": [],
@@ -40,59 +41,59 @@ class InputSelector:
         self.is_drawing = False
 
     def _mouse_callback(self, event, x, y, flags, param):
-        # 左键按下，开始绘制或标记点
+        # Left button down, start drawing or marking a point
         if event == cv2.EVENT_LBUTTONDOWN:
             self.start_point = (x, y)
             self.is_drawing = True
 
-        # 鼠标移动，如果正在绘制，则实时显示边界框
+        # Mouse move, if drawing, display the bounding box in real-time
         elif event == cv2.EVENT_MOUSEMOVE:
             if self.is_drawing:
-                # 创建一个临时图像以显示拖拽过程，避免在原图上留下痕迹
+                # Create a temporary image to show the dragging process, avoiding leaving marks on the original display
                 temp_image = self.display_image.copy()
                 cv2.rectangle(temp_image, self.start_point, (x, y), (255, 0, 0), 2)
                 cv2.imshow(self.window_name, temp_image)
 
-        # 左键抬起，结束绘制或标记点
+        # Left button up, finish drawing or marking a point
         elif event == cv2.EVENT_LBUTTONUP:
             end_point = (x, y)
             self.is_drawing = False
 
-            # 如果起始点和结束点非常接近，视为一次点击
+            # If the start and end points are very close, treat it as a click
             if np.linalg.norm(np.array(self.start_point) - np.array(end_point)) < 5:
                 self.prompts["pos_points"].append(end_point)
-                print(f"添加前景点: {end_point}")
+                print(f"Added foreground point: {end_point}")
                 cv2.circle(self.display_image, end_point, 5, (0, 255, 0), -1)
-            # 否则，视为一次拖拽，形成边界框
+            # Otherwise, treat it as a drag to form a bounding box
             else:
                 x1, y1 = self.start_point
                 x2, y2 = end_point
-                # 如果已有框，新的框会覆盖旧的
+                # If a box already exists, the new one will replace it
                 self.prompts["box"] = (min(x1, x2), min(y1, y2), abs(x1 - x2), abs(y1 - y2))
-                print(f"设置边界框: {self.prompts['box']}")
-                # 清除旧框的痕迹，重新绘制所有标注
+                print(f"Set bounding box: {self.prompts['box']}")
+                # Clear old drawings and redraw all prompts
                 self._redraw_prompts()
 
             cv2.imshow(self.window_name, self.display_image)
 
-        # 右键单击，添加背景点
+        # Right-click, add a background point
         elif event == cv2.EVENT_RBUTTONDOWN:
             self.prompts["neg_points"].append((x, y))
-            print(f"添加背景点: {(x, y)}")
+            print(f"Added background point: {(x, y)}")
             cv2.circle(self.display_image, (x, y), 5, (0, 0, 255), -1)
             cv2.imshow(self.window_name, self.display_image)
 
     def _redraw_prompts(self):
-        """重新绘制所有当前的提示（点和框），用于更新或清除"""
+        """Redraw all current prompts (points and box) for updating or clearing."""
         self.display_image = self.image.copy()
-        # 画框
+        # Draw box
         if self.prompts["box"]:
             x, y, w, h = self.prompts["box"]
             cv2.rectangle(self.display_image, (x, y), (x + w, y + h), (255, 0, 0), 2)
-        # 画前景点
+        # Draw foreground points
         for pt in self.prompts["pos_points"]:
             cv2.circle(self.display_image, pt, 5, (0, 255, 0), -1)
-        # 画背景点
+        # Draw background points
         for pt in self.prompts["neg_points"]:
             cv2.circle(self.display_image, pt, 5, (0, 0, 255), -1)
 
@@ -100,12 +101,12 @@ class InputSelector:
         cv2.namedWindow(self.window_name)
         cv2.setMouseCallback(self.window_name, self._mouse_callback)
 
-        print("\n--- 混合标注模式 ---")
-        print("左键单击: 添加前景点 (绿色)")
-        print("右键单击: 添加背景点 (红色)")
-        print("左键拖拽: 绘制/替换边界框 (蓝色)")
-        print("按 'c' 清除所有标注")
-        print("按 'Enter' 确认并开始跟踪")
+        print("\n--- Mixed Annotation Mode ---")
+        print("Left-click: Add a foreground point (green)")
+        print("Right-click: Add a background point (red)")
+        print("Left-drag: Draw/Replace bounding box (blue)")
+        print("Press 'c' to clear all annotations")
+        print("Press 'Enter' to confirm and start tracking")
         print("--------------------\n")
 
         while True:
@@ -113,16 +114,16 @@ class InputSelector:
             key = cv2.waitKey(1) & 0xFF
 
             if key == ord('c'):
-                print("清除所有标注。")
+                print("Clearing all annotations.")
                 self._reset_selection()
                 self._redraw_prompts()
 
-            elif key == 13:  # Enter 键
+            elif key == 13:  # Enter key
                 break
 
         cv2.destroyWindow(self.window_name)
 
-        # 检查是否至少有一个有效的提示
+        # Check if there is at least one valid prompt
         if not self.prompts["pos_points"] and not self.prompts["neg_points"] and not self.prompts["box"]:
             return None
 
@@ -141,17 +142,17 @@ class InputSelector:
 def run_sequence(dir_path, file_extension, output_dir):
     frames_dir = sorted(glob.glob(os.path.join(dir_path, '*.%s' % file_extension)))
     if not frames_dir:
-        print('Error: 指定目录下没有图像文件。')
+        print('Error: No image files found in the specified directory.')
         return
 
     img0_bgr = cv2.imread(frames_dir[0])
 
-    # 使用新的 InputSelector
-    input_selector = InputSelector('混合标注界面', img0_bgr)
+    # Use the new InputSelector
+    input_selector = InputSelector('Mixed Annotation Interface', img0_bgr)
     init_prompts = input_selector.select_input()
 
     if not init_prompts:
-        print('错误: 未提供任何有效的初始化标注 (点或框)。')
+        print('Error: No valid initial annotations (points or box) were provided.')
         return
 
     tracker = DAM4SAMTracker('sam21pp-L')
@@ -161,16 +162,16 @@ def run_sequence(dir_path, file_extension, output_dir):
             shutil.rmtree(output_dir)
         os.makedirs(output_dir)
 
-    print('开始分割序列帧...')
+    print('Starting to segment the frame sequence...')
     for i, frame_path in enumerate(frames_dir):
         img = Image.open(frame_path).convert('RGB')
         img_vis = np.array(img)
 
         if i == 0:
-            # 使用包含多种提示的字典来初始化 tracker
+            # Initialize the tracker with a dictionary containing multiple prompts
             outputs = tracker.initialize(img, init_prompts=init_prompts)
 
-            # 可视化所有初始提示
+            # Visualize all initial prompts
             if not output_dir:
                 if init_prompts.get("box"):
                     overlay_rectangle(img_vis, init_prompts["box"], color=(255, 0, 0), line_width=2)
@@ -197,15 +198,15 @@ def run_sequence(dir_path, file_extension, output_dir):
             cv2.imshow(window_name, cv2.cvtColor(img_vis, cv2.COLOR_RGB2BGR))
             key_ = cv2.waitKey(wait_)
 
-            if key_ == 27:
+            if key_ == 27: # ESC key
                 exit(0)
-            elif key_ == 32:
+            elif key_ == 32: # Space bar
                 wait_ = 0 if wait_ else 1
 
-    print('分割完成。')
+    print('Segmentation complete.')
 
 
-# main 函数保持不变
+# main function remains unchanged
 def main():
     parser = argparse.ArgumentParser(description='Run on a sequence of frames-dir.')
     parser.add_argument('--dir', type=str, required=True, help='Path to directory with frames-dir.')
