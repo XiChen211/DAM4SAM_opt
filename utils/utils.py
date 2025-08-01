@@ -26,6 +26,7 @@ def keep_largest_component(mask):
 
 def determine_tracker(tracker_name):
     path_ = os.path.abspath(os.path.dirname(__file__))
+    print(path_)
     if tracker_name == "sam21pp-L":
         checkpoint = os.path.join(path_, "../checkpoints/sam2.1_hiera_large.pt")
         model_cfg = "sam21pp_hiera_l.yaml"
@@ -86,3 +87,4 @@ def compute_seq_perf(pred_masks_, gt, bounds, sequence_name):
     print('--------------------------------')
 
     return (sequence_name, avg_overlap, robustness)
+
