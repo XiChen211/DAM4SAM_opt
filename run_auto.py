@@ -12,7 +12,6 @@ from dam4sam_tracker import DAM4SAMTracker
 import time
 
 # SAM2_VERSION_TRACK=dam4sam python run_auto.py --dir frames-dir --ext jpg --output_dir output-dir --model_path sam2_opt/sam2/checkpoints/opts
-# python run_auto.py --dir frames-dir --ext jpg --output_dir output-dir --model_path sam2_opt/sam2/checkpoints/opts
 def run_sequence(dir_path, file_extension, output_dir, model_path=None):
     if not output_dir:
         print("Please provide a path to save the output masks")

@@ -7,3 +7,6 @@ build/*
 _C.*
 outputs/*
 checkpoints/*.pt
+frames-dir/*
+output-dir/*
+*.log
