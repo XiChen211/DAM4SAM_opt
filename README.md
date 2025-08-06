@@ -2,7 +2,7 @@
 
 # DAM4SAM_opt
 </div>
-optimize grounded_sam2 with tensorrt
+optimize dam4sam with tensorrt
 
 
 ## Download models
