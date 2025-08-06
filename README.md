@@ -5,7 +5,7 @@
 optimize dam4sam with tensorrt
 
 
-## Download models
+## Download sam2 models
 
 ```bash
 cd checkpoints
