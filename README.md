@@ -2,7 +2,6 @@
 
 # DAM4SAM_opt
 </div>
-# grounded_sam2_opt
 optimize grounded_sam2 with tensorrt
 
 
